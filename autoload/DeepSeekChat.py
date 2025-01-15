@@ -188,10 +188,17 @@ def DeepSeekChatCommand(cmd):
     if CstVarHistory not in vim.vars:
         vim.vars[CstVarHistory] = []
     if CstVarCfg not in vim.vars:
-        vim.vars[CstVarCfg] = {}
+        print(f"please set g:{CstVarCfg}")
+        return
     global gCfg
     gCfg=vim.vars[CstVarCfg]
+
+    if not CstCfgHtmlSepType in gCfg:
+        gCfg[CstCfgHtmlSepType] = 2
     if cmd=="chat":
+        if not CstCfgApiKey in gCfg:
+            print(f"please set g:{CstVarCfg}.{CstCfgApiKey}")
+            return
         line=""
         mode = vim.eval('mode()')
         if mode in ['v', 'V', '\x16']:

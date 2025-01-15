@@ -1,12 +1,3 @@
-python3 << EOF
-import importlib
-import sys
-
-if 'DeepSeekChat' in sys.modules:
-    m = sys.modules['DeepSeekChat']
-    importlib.reload(m)
-EOF
-
 python3 import sys, vim
 python3 if vim.eval('expand("<sfile>:p:h")') not in sys.path: sys.path.append(vim.eval('expand("<sfile>:p:h")'))
 python3 from DeepSeekChat import DeepSeekChatCommand, DeepSeekChatEnter, DeepSeekChatLeave
