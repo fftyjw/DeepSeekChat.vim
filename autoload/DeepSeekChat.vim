@@ -6,24 +6,33 @@ function! deepseekchat#map()
     if g:deepseek_chat_automap == 0
         return
     endif
-    if bufname('%') == 'deepseek'
-        noremap <buffer> <c-s> :call deepseekchat#cmd('chat')<CR>
+    if bufname('%') == 'deepseekchat'
+        nnoremap <buffer> <c-s> :<C-u>call deepseekchat#cmd('chat')<CR>
         inoremap <buffer> <c-s> <esc>:call deepseekchat#cmd('chat')<CR>
-        noremap <buffer> <c-n> :call deepseekchat#cmd('new')<CR>
+        vnoremap <buffer> <c-s> <esc>:call deepseekchat#cmd_v('chat')<CR>
+        noremap <buffer> <c-n> :<C-u>call deepseekchat#cmd('new')<CR>
         inoremap <buffer> <c-n> <esc>:call deepseekchat#cmd('new')<CR>
-        noremap <buffer> <c-d> :call deepseekchat#cmd('debug')<CR>
+        noremap <buffer> <c-d> :<C-u>call deepseekchat#cmd('debug')<CR>
         inoremap <buffer> <c-d> <esc>:call deepseekchat#cmd('debug')<CR>
     endif
 endfunction
 
-fun! deepseekchat#cmd(cmd) range
+fun! deepseekchat#cmd_v(cmd) range
+    call deepseekchat#cmdImp(a:cmd, 1)
+endfun
+
+fun! deepseekchat#cmd(cmd)
+    call deepseekchat#cmdImp(a:cmd, 0)
+endfun
+
+fun! deepseekchat#cmdImp(cmd, visualMode) range
 python3 << EOF
 cmd = vim.eval('a:cmd')
-DeepSeekChatCommand(cmd)
+visualMode = int(vim.eval('a:visualMode'))
+DeepSeekChatCommand(cmd, visualMode)
 EOF
 endfun
 fun! deepseekchat#open() range
-    autocmd BufEnter * call deepseekchat#map()
     call deepseekchat#cmd("open")
-    call deepseekchat#map()
 endfun
+autocmd BufEnter * call deepseekchat#map()

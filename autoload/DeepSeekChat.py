@@ -20,6 +20,7 @@ CstVarHistory="deepseek_history"
 CstVarCfg="deepseek_chat_cfg"
 CstCfgHtmlSepType="HtmlSepType"
 CstCfgApiKey="ApiKey"
+CstBufferName="deepseekchat"
 gCfg = {}
 
 def putTip():
@@ -52,31 +53,25 @@ def curserEnd():
     vim.current.window.cursor = (last_line, 0)
 
 def openDeepSeek():
-    # 查找名为 "deepseek" 的缓冲区
+    for tab in vim.tabpages:
+        for win in tab.windows:
+            if win.buffer.name.endswith(CstBufferName):
+                # 切换到对应的标签页和窗口
+                vim.current.tabpage = tab
+                vim.current.window = win
+                return
+
     target_buffer = None
     for buf in vim.buffers:
-        if buf.name and buf.name.endswith('deepseek'):
+        if buf.name and buf.name.endswith(CstBufferName):
             target_buffer = buf
             break
-
-    # 如果找到缓冲区
-    if target_buffer:
-        # 遍历所有标签页和窗口，查找显示该缓冲区的窗口
-        for tab in vim.tabpages:
-            for win in tab.windows:
-                if win.buffer == target_buffer:
-                    # 切换到对应的标签页和窗口
-                    vim.current.tabpage = tab
-                    vim.current.window = win
-                    return
-
     # 如果未找到缓冲区，则垂直拆分窗口并创建新缓冲区
-    vim.command('vsplit')  # 垂直拆分窗口
     if target_buffer:
+        vim.command('vsplit')  # 垂直拆分窗口
         vim.command(f"buffer {target_buffer.number}")  # 垂直拆分窗口
         return
-    vim.command('enew')  # 创建新缓冲区
-    vim.command('file deepseek')  # 设置缓冲区名称为 "deepseek"
+    vim.command(f'vnew {CstBufferName}')  # 创建新缓冲区
     vim.command('set filetype=markdown')  # 设置文件类型为 "vimwiki"
     vim.command('set hidden')  # 设置文件类型为 "vimwiki"
     vim.command('setlocal buftype=nofile')
@@ -101,18 +96,17 @@ def find_question():
     for line_num in range(current_line_num, 0, -1):
         # 获取当前行的内容
         line_content = vim.eval(f'getline({line_num})')
-        
-        # 检查是否以 #deepseek# 或 #user# 开头
-        if line_content.startswith(("#deepseek#", "#user#", "<hr ")):
+        if line_content.startswith(("<!-- #deepseek#", "<!-- #user#")):
             break
-        
+        if line_content==CstHtmlSep1 or line_content==CstHtmlSep2:
+            break
         # 检查是否为空行
         if line_content.strip():
             matching_lines.append(line_content)
     
     # 输出所有符合条件的行
     if len(matching_lines) > 0:
-        return "\n".join(matching_lines)
+        return "\n".join(matching_lines[::-1])
     
     return ""
 
@@ -184,7 +178,21 @@ def setAutoCommand():
     vim.command(f'autocmd BufLeave <buffer={buffer_name}> py3 DeepSeekChatLeave()')
     vim.command('augroup END')
 
-def DeepSeekChatCommand(cmd):
+def getLinePart(line, start=0, end=-1):
+    byte_data = line.encode('utf-8')
+    if end==-1:
+        end=len(byte_data)
+    else:
+        char_index = len(byte_data[:end].decode('utf-8', errors='ignore'))
+        char_byte_length = len(line[char_index].encode('utf-8'))
+        end+=char_byte_length
+    sliced_bytes = byte_data[start:end]
+    try:
+        return sliced_bytes.decode('utf-8')
+    except UnicodeDecodeError:
+        return sliced_bytes.decode('utf-8', errors='ignore')
+
+def DeepSeekChatCommand(cmd, visualMode=0):
     if CstVarHistory not in vim.vars:
         vim.vars[CstVarHistory] = []
     if CstVarCfg not in vim.vars:
@@ -200,21 +208,36 @@ def DeepSeekChatCommand(cmd):
             print(f"please set g:{CstVarCfg}.{CstCfgApiKey}")
             return
         line=""
-        mode = vim.eval('mode()')
-        if mode in ['v', 'V', '\x16']:
-            start = vim.eval('getpos("\'<")')
-            end = vim.eval('getpos("\'>")')
-            if start != end:
-                line="\n".join(vim.current.buffer[start:end+1])
+        if 0 != visualMode:
+            start_pos=vim.eval("getpos(\"'<\")")
+            end_pos=vim.eval("getpos(\"'>\")")
+#            vim.command(f'echom "{start_pos}, {end_pos}"')
+            start_line, start_col = start_pos[1:3]
+            end_line, end_col = end_pos[1:3]
+            endCol=int(end_col)
+            if endCol == 0x7FFFFFFF:
+                endCol = -1
+            else:
+                endCol -= 1
+            selected_lines = vim.current.buffer[int(start_line) - 1:int(end_line)]
+            if selected_lines:
+                if len(selected_lines) == 1:
+                    # 单行选中
+                    line=getLinePart(selected_lines[0], int(start_col)-1, endCol)
+                else:
+                    # 多行选中
+                    selected_lines[0] = getLinePart(selected_lines[0], int(start_col)-1)
+                    selected_lines[-1] = getLinePart(selected_lines[-1], end=endCol)
+                    line="\n".join(selected_lines)
 
         if "" == line:
             line=find_question()
 
         if "" == line:
-            find_question()
             print("empty question")
             return
 
+#        vim.command(f'echom "line: {line}, mode: {visualMode}"')
         putSep(moveCursor=False, htmlSep=True)
         deepseek_chat_stream(line)
         putSep("end", suffixLine=2)
@@ -222,7 +245,7 @@ def DeepSeekChatCommand(cmd):
     elif cmd == "new":
         vim.vars[CstVarHistory]=[]
         print("deepseeek session reset")
-        if vim.current.buffer.name.endswith('deepseek'):
+        if vim.current.buffer.name.endswith(CstBufferName):
             putSep("session reset", prefixLine=2, suffixLine=2)
             putTip()
             curserEnd()
