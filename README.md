@@ -1,5 +1,7 @@
 # DeepSeekChat for Neovim
 
+![record](https://github.com/user-attachments/assets/f90a6eb2-f693-45c8-96ae-c481e88e09d7)
+
 # Requirements
 
 - [Neovim 0.10.2+](https://neovim.io/) or [vim 9.1.0+](https://vim.org/). Both editor need python3 support.
