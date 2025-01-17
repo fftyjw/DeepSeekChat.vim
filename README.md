@@ -7,7 +7,7 @@
 - [Neovim 0.10.2+](https://neovim.io/) or [vim 9.1.0+](https://vim.org/). Both editor need python3 support.
 - Python3 with requests installed.
 ```
-     'pip3 install requests'
+     pip3 install requests
 ```
 
 # Installation
