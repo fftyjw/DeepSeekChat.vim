@@ -2,6 +2,8 @@
 import requests
 import vim
 import json
+import os
+import sys
 
 def addColorLine(line, prefixLine=0, suffixLine=1):
     for _ in range(prefixLine):
@@ -22,6 +24,7 @@ CstCfgHtmlSepType="HtmlSepType"
 CstCfgApiKey="ApiKey"
 CstBufferName="deepseekchat"
 gCfg = {}
+gNvim = -1
 
 def putTip():
     addColorLine(CstTip, suffixLine=0)
@@ -63,7 +66,8 @@ def openDeepSeek():
 
     target_buffer = None
     for buf in vim.buffers:
-        if buf.name and buf.name.endswith(CstBufferName):
+        is_listed = vim.eval(f'buflisted({buf.number})') == '1'
+        if is_listed and buf.name and buf.name.endswith(CstBufferName):
             target_buffer = buf
             break
     # 如果未找到缓冲区，则垂直拆分窗口并创建新缓冲区
@@ -110,12 +114,82 @@ def find_question():
     
     return ""
 
-def deepseek_chat_stream(q):
-    conversation_history=vim.vars[CstVarHistory]
-    conversation_history.append({"role": "user", "content": q})
+def historyFromVim():
+    return vim.vars[CstVarHistory]
 
+def historyToVim(history=None):
+    if None == history:
+        if isNvim():
+            history=[]
+        else:
+            history=([], {})
+    vim.vars[CstVarHistory] = history
+
+def addHistory(history, item):
+    if isNvim():
+        history.append(item)
+    else:
+        key=f"{len(history[0])}"
+        history[1].update({key: item})
+        history[0].extend(key)
+
+def serializableHistory(history):
+    def convItem(item):
+#        print(item, isinstance(item, dict))
+        if isinstance(item, dict) or isinstance(item, vim.Dictionary):
+            role=item["role"]
+            if not isNvim():
+                role=item[b"role"]
+            if isinstance(role, bytes):
+                role=role.decode()
+            content=item["content"]
+            if not isNvim():
+                content=item[b"content"]
+            if isinstance(content, bytes):
+                content=content.decode()
+            if role and content:
+#                print(role, content)
+                return {"role": role, "content": content}
+        return None
+
+    ret=[]
+    if isNvim():
+        for item in history:
+            item=convItem(item)
+            if item:
+                ret.append(item)
+    else:
+        for key in history[0]:
+            item=history[1][key]
+            item=convItem(item)
+            if item:
+                ret.append(item)
+#    print(ret)
+    return ret
+
+def isNvim():
+    global gNvim
+    if gNvim < 0:
+        if 'NVIM' in os.environ:
+#            print("Running in Neovim")
+            gNvim=1
+        else:
+#            print("Running in Vim")
+            gNvim=0
+    if 0 == gNvim:
+        return False
+    else:
+        return True
+
+def deepseek_chat_stream(q):
+    conversation_history=historyFromVim()
+    apiKey=gCfg[CstCfgApiKey]
+    if type(apiKey) is bytes:
+        apiKey=apiKey.decode('utf-8')
+    addHistory(conversation_history,{"role": "user", "content": q})
+#    vim.command(f'echom "key: {apiKey}, history: {conversation_history}"')
     header = {
-        "Authorization": f"Bearer {gCfg[CstCfgApiKey]}",
+        "Authorization": f"Bearer {apiKey}",
         "Content-Type": "application/json",
     }
     data = {
@@ -123,7 +197,7 @@ def deepseek_chat_stream(q):
         "messages": [{"role": "user"}],
         "max_tokens": 2048,
     }
-    data["messages"]=conversation_history
+    data["messages"]=serializableHistory(conversation_history)
     data["stream"]=True
     with requests.post(CstUrl, headers=header, json=data, stream=True) as response:
         if response.status_code != 200:
@@ -159,8 +233,8 @@ def deepseek_chat_stream(q):
                                     vim.command("redraw")  # 刷新界面
                     except json.JSONDecodeError:
                         print(f"Invalid JSON chunk: {chunk_str}", file=sys.stderr)
-        conversation_history.append({"role": "assistant", "content": assistant_reply})
-        vim.vars[CstVarHistory]=conversation_history
+        addHistory(conversation_history, {"role": "assistant", "content": assistant_reply})
+        historyToVim(conversation_history)
 
 def DeepSeekChatEnter():
     vim.command('highlight clear DeepseekHighlight')
@@ -169,14 +243,6 @@ def DeepSeekChatEnter():
 
 def DeepSeekChatLeave():
     return
-
-def setAutoCommand():
-    buffer_name = vim.eval('bufname("%")')  # 获取当前缓冲区的名字
-    vim.command(f'augroup BufferHighlight_{buffer_name}')  # 使用 buffer 名字作为 augroup 名称
-    vim.command('autocmd!')
-    vim.command(f'autocmd BufEnter <buffer={buffer_name}> py3 DeepSeekChatEnter()')
-    vim.command(f'autocmd BufLeave <buffer={buffer_name}> py3 DeepSeekChatLeave()')
-    vim.command('augroup END')
 
 def getLinePart(line, start=0, end=-1):
     byte_data = line.encode('utf-8')
@@ -194,7 +260,7 @@ def getLinePart(line, start=0, end=-1):
 
 def DeepSeekChatCommand(cmd, visualMode=0):
     if CstVarHistory not in vim.vars:
-        vim.vars[CstVarHistory] = []
+        historyToVim()
     if CstVarCfg not in vim.vars:
         print(f"please set g:{CstVarCfg}")
         return
@@ -243,7 +309,7 @@ def DeepSeekChatCommand(cmd, visualMode=0):
         putSep("end", suffixLine=2)
         putTip()
     elif cmd == "new":
-        vim.vars[CstVarHistory]=[]
+        historyToVim()
         print("deepseeek session reset")
         if vim.current.buffer.name.endswith(CstBufferName):
             putSep("session reset", prefixLine=2, suffixLine=2)
@@ -251,10 +317,9 @@ def DeepSeekChatCommand(cmd, visualMode=0):
             curserEnd()
     elif cmd == "open":
         openDeepSeek()
-        setAutoCommand()
     elif cmd == "debug":
         debug={
-            "cfg": gCfg,
-            "history": vim.vars[CstVarHistory],
+            "cfg": dict(gCfg),
+            "history": serializableHistory(historyFromVim()),
         }
         print(debug)

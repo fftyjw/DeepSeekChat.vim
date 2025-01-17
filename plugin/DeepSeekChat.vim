@@ -8,8 +8,16 @@ command! -range DeepSeekChatDebug call deepseekchat#cmd("debug")
 command! -range DeepSeekChat call deepseekchat#cmd("chat")
 
 let s:scriptPath=expand("<sfile>:p:h")."/.."
+execute 'py3file' s:scriptPath.'/autoload/DeepSeekChat.py'
+augroup BufferHighlight_deepseekchat
+autocmd!
+autocmd BufEnter * if bufname("%") == "deepseekchat" | execute "py3 DeepSeekChatEnter()" | endif
+autocmd BufLeave * if bufname("%") == "deepseekchat" | execute "py3 DeepSeekChatLeave()" | endif
+augroup END
+
 fun! deepseekchat#reload()
     execute 'source' s:scriptPath."/autoload/DeepSeekChat.vim"
+    execute 'py3file' s:scriptPath.'/autoload/DeepSeekChat.py'
 python3 << EOF
 import importlib
 import sys
