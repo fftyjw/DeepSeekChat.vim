@@ -72,3 +72,7 @@ let g:deepseek_chat_cfg = {
         \ }
 ```
 - `g:deepseek_chat_automap` 0: Disable auto mapping. 1: Enable auto mapping. Default 1.
+
+## License
+
+[Anti 996](./LICENSE.md)
