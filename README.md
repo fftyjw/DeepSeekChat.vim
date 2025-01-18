@@ -1,4 +1,4 @@
-# DeepSeekChat for Neovim
+# DeepSeekChat for Vim & Neovim
 
 ![record](https://github.com/user-attachments/assets/f90a6eb2-f693-45c8-96ae-c481e88e09d7)
 
