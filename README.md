@@ -19,7 +19,7 @@ call plug#begin()
 Plug 'fftyjw/DeepSeekChat.vim'
 call plug#end()
 
-"ApiKey must set.
+"ApiKey must set for non-local models.
 let g:deepseek_chat_cfg = {
     \ "ApiKey": "<your api key>",
     \ }
@@ -62,15 +62,25 @@ let g:deepseek_chat_cfg = {
 ## Config
 - `g:deepseek_chat_cfg` Basic configs. Example:
 ```vim
+    "Online model
     let g:deepseek_chat_cfg = {
-        \ "ApiKey": "xxxxxxx", "Put your api key here. This is required.
+        \ "ApiKey": "xxxxxxx", "Put your api key here. This is required for non-local models.
         \ "The chat buffer's filetype is 'markdown'. To render it nicely, the plugin offers 2 types of separator lines:
         \ "  1: A black 2-pixel-high separator line. 
         \ "  2: Normal separator line.(Markdown code: ***). 
         \ "If this config is set to 0, there will be no separator lines.
         \ "HtmlSepType": 0, 
         \ }
+        
+    "Local model
+    let g:deepseek_chat_cfg = {
+        \ "AIServerType": "Use 'deepseek' for online models and 'ollama' for local models.
+        \ "Model": "xxxxxx", "Put your local model name here. 
+        \ "HideThink": 1,
+        \ "HtmlSepType": 0, 
+        \ }
 ```
+  
 - `g:deepseek_chat_automap` 0: Disable auto mapping. 1: Enable auto mapping. Default 1.
 
 ## License
