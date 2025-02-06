@@ -15,6 +15,7 @@ def addColorLine(line, prefixLine=0, suffixLine=1):
 
 
 CstUrl = "https://api.deepseek.com/chat/completions"
+CstOllamaUrl= "http://127.0.0.1:11434/api/chat"
 CstTip="<!-- #user#---------------->"
 CstHtmlSep1='<hr style="height: 2px; background: black; border: none;">'
 CstHtmlSep2='***'
@@ -22,7 +23,16 @@ CstVarHistory="deepseek_history"
 CstVarCfg="deepseek_chat_cfg"
 CstCfgHtmlSepType="HtmlSepType"
 CstCfgApiKey="ApiKey"
+CstCfgAIServerUrl="AIServerUrl"
+CstCfgAIServerType="AIServerType"
+CstCfgModel="Model"
+CstCfgHideThink="HideThink"
+
 CstBufferName="deepseekchat"
+
+CstServerTypeDeepSeek="deepseek"
+CstServerTypeOllama="ollama"
+
 gCfg = {}
 gNvim = -1
 
@@ -125,15 +135,17 @@ def historyToVim(history=None):
             history=([], {})
     vim.vars[CstVarHistory] = history
 
-def addHistory(history, item):
+def addHistory(history, *items):
     if isNvim():
-        history.append(item)
+        for item in items:
+            history.append(item)
     else:
-        key=f"{len(history[0])}"
-        history[1].update({key: item})
-        history[0].extend(key)
+        for item in items:
+            key=f"{len(history[0])}"
+            history[1].update({key: item})
+            history[0].extend(key)
 
-def serializableHistory(history):
+def serializableHistory(history, extra=None):
     def convItem(item):
 #        print(item, isinstance(item, dict))
         if isinstance(item, dict) or isinstance(item, vim.Dictionary):
@@ -164,6 +176,8 @@ def serializableHistory(history):
             item=convItem(item)
             if item:
                 ret.append(item)
+    if extra:
+        ret.append(extra)
 #    print(ret)
     return ret
 
@@ -181,12 +195,80 @@ def isNvim():
     else:
         return True
 
+def getCfgWithDefault(key, default):
+    ret=default
+    if key in gCfg:
+        ret=gCfg[key]
+        if type(ret) is bytes:
+            ret=ret.decode('utf-8')
+#    vim.command(f'echom "getCfgWithDefault, key: {key}, ret: {ret}, default: {default}"')
+    return ret
+
+def ollama_chat_stream(q):
+    conversation_history=historyFromVim()
+    url=getCfgWithDefault(CstCfgAIServerUrl, CstOllamaUrl)
+    model=getCfgWithDefault(CstCfgModel, "")
+#    vim.command(f'echom "ollama, history: {conversation_history}"')
+    header = {
+        "Content-Type": "application/json",
+    }
+    data = {
+        "model": model,
+        "messages": [{"role": "user"}],
+    }
+    hisReq={"role": "user", "content": q}
+    data["messages"]=serializableHistory(conversation_history, hisReq)
+    data["stream"]=True
+    with requests.post(url, headers=header, json=data, stream=True) as response:
+        if response.status_code != 200:
+            vim.command(f'echo "Status: {response.status_code}"')
+            return False
+        assistant_reply = ""
+        putSep(moveCursor=False, htmlSep=True)
+        thinking=False
+        hideThink=getCfgWithDefault(CstCfgHideThink, 1)
+        for chunk in response.iter_lines():
+            if chunk:
+                chunk_str=chunk.decode("utf-8").strip()
+                try:
+                    json_data = json.loads(chunk_str)  # 解析 JSON
+                    if "message" in json_data:
+                        text = json_data["message"]["content"]
+                        if text:
+                            if hideThink:
+                                if text=="<think>":
+                                    thinking=True
+                                    continue
+                                elif text=="</think>":
+                                    thinking=False
+                                    continue
+                                elif thinking:
+                                    continue
+                            assistant_reply += text
+                            buf = vim.current.buffer
+                            lines = text.split('\n')
+                            firstLine=True
+                            for line in lines:
+                                if firstLine:
+                                    firstLine = False
+                                    last_line = len(buf) - 1
+                                    buf[last_line] += line  # 直接修改最后一行的内容
+                                else:
+                                    buf.append(line)  # 将每一行添加到缓冲区末尾
+                                    curserEnd()
+                            vim.command("redraw")  # 刷新界面 
+                    if "done" in json_data and json_data["done"]:
+                        continue
+                except json.JSONDecodeError:
+                    print(f"Invalid JSON chunk: {chunk_str}", file=sys.stderr)
+        if assistant_reply:
+            addHistory(conversation_history, hisReq, {"role": "assistant", "content": assistant_reply})
+            historyToVim(conversation_history)
+    return True
+
 def deepseek_chat_stream(q):
     conversation_history=historyFromVim()
-    apiKey=gCfg[CstCfgApiKey]
-    if type(apiKey) is bytes:
-        apiKey=apiKey.decode('utf-8')
-    addHistory(conversation_history,{"role": "user", "content": q})
+    apiKey=getCfgWithDefault(CstCfgApiKey, "")
 #    vim.command(f'echom "key: {apiKey}, history: {conversation_history}"')
     header = {
         "Authorization": f"Bearer {apiKey}",
@@ -197,13 +279,15 @@ def deepseek_chat_stream(q):
         "messages": [{"role": "user"}],
         "max_tokens": 2048,
     }
-    data["messages"]=serializableHistory(conversation_history)
+    hisReq={"role": "user", "content": q}
+    data["messages"]=serializableHistory(conversation_history, hisReq)
     data["stream"]=True
     with requests.post(CstUrl, headers=header, json=data, stream=True) as response:
         if response.status_code != 200:
             vim.command(f'echo "Status: {response.status_code}"')
-            return
+            return False
         assistant_reply = ""
+        putSep(moveCursor=False, htmlSep=True)
         for chunk in response.iter_lines():
             if chunk:
                 chunk_str=chunk.decode("utf-8").strip()
@@ -233,8 +317,10 @@ def deepseek_chat_stream(q):
                                     vim.command("redraw")  # 刷新界面
                     except json.JSONDecodeError:
                         print(f"Invalid JSON chunk: {chunk_str}", file=sys.stderr)
-        addHistory(conversation_history, {"role": "assistant", "content": assistant_reply})
-        historyToVim(conversation_history)
+        if assistant_reply:
+            addHistory(conversation_history, hisReq, {"role": "assistant", "content": assistant_reply})
+            historyToVim(conversation_history)
+    return True
 
 def DeepSeekChatEnter():
     vim.command('highlight clear DeepseekHighlight')
@@ -303,11 +389,15 @@ def DeepSeekChatCommand(cmd, visualMode=0):
             print("empty question")
             return
 
-#        vim.command(f'echom "line: {line}, mode: {visualMode}"')
-        putSep(moveCursor=False, htmlSep=True)
-        deepseek_chat_stream(line)
-        putSep("end", suffixLine=2)
-        putTip()
+        aiType=getCfgWithDefault(CstCfgAIServerType, CstServerTypeDeepSeek)
+#        vim.command(f'echom "line: {line}, mode: {visualMode}, aiType: {aiType}"')
+        if aiType==CstServerTypeOllama:
+            ret=ollama_chat_stream(line)
+        else:
+            ret=deepseek_chat_stream(line)
+        if ret:
+            putSep("end", suffixLine=2)
+            putTip()
     elif cmd == "new":
         historyToVim()
         print("deepseeek session reset")
