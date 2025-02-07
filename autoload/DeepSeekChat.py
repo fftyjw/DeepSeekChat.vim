@@ -1,5 +1,5 @@
 # deepseek_chat.py
-import requests
+import httpx
 import vim
 import json
 import os
@@ -219,51 +219,52 @@ def ollama_chat_stream(q):
     hisReq={"role": "user", "content": q}
     data["messages"]=serializableHistory(conversation_history, hisReq)
     data["stream"]=True
-    with requests.post(url, headers=header, json=data, stream=True) as response:
-        if response.status_code != 200:
-            vim.command(f'echo "Status: {response.status_code}"')
-            return False
-        assistant_reply = ""
-        putSep(moveCursor=False, htmlSep=True)
-        thinking=False
-        hideThink=getCfgWithDefault(CstCfgHideThink, 1)
-        for chunk in response.iter_lines():
-            if chunk:
-                chunk_str=chunk.decode("utf-8").strip()
-                try:
-                    json_data = json.loads(chunk_str)  # 解析 JSON
-                    if "message" in json_data:
-                        text = json_data["message"]["content"]
-                        if text:
-                            if hideThink:
-                                if text=="<think>":
-                                    thinking=True
-                                    continue
-                                elif text=="</think>":
-                                    thinking=False
-                                    continue
-                                elif thinking:
-                                    continue
-                            assistant_reply += text
-                            buf = vim.current.buffer
-                            lines = text.split('\n')
-                            firstLine=True
-                            for line in lines:
-                                if firstLine:
-                                    firstLine = False
-                                    last_line = len(buf) - 1
-                                    buf[last_line] += line  # 直接修改最后一行的内容
-                                else:
-                                    buf.append(line)  # 将每一行添加到缓冲区末尾
-                                    curserEnd()
-                            vim.command("redraw")  # 刷新界面 
-                    if "done" in json_data and json_data["done"]:
-                        continue
-                except json.JSONDecodeError:
-                    print(f"Invalid JSON chunk: {chunk_str}", file=sys.stderr)
-        if assistant_reply:
-            addHistory(conversation_history, hisReq, {"role": "assistant", "content": assistant_reply})
-            historyToVim(conversation_history)
+    with httpx.Client(http2=True) as client:
+        with client.stream("POST", url, headers=header, json=data) as response:
+            if response.status_code != 200:
+                vim.command(f'echo "Status: {response.status_code}"')
+                return False
+            assistant_reply = ""
+            putSep(moveCursor=False, htmlSep=True)
+            thinking=False
+            hideThink=getCfgWithDefault(CstCfgHideThink, 1)
+            for chunk in response.iter_lines():
+                if chunk:
+                    chunk_str=chunk.strip()
+                    try:
+                        json_data = json.loads(chunk_str)  # 解析 JSON
+                        if "message" in json_data:
+                            text = json_data["message"]["content"]
+                            if text:
+                                if hideThink:
+                                    if text=="<think>":
+                                        thinking=True
+                                        continue
+                                    elif text=="</think>":
+                                        thinking=False
+                                        continue
+                                    elif thinking:
+                                        continue
+                                assistant_reply += text
+                                buf = vim.current.buffer
+                                lines = text.split('\n')
+                                firstLine=True
+                                for line in lines:
+                                    if firstLine:
+                                        firstLine = False
+                                        last_line = len(buf) - 1
+                                        buf[last_line] += line  # 直接修改最后一行的内容
+                                    else:
+                                        buf.append(line)  # 将每一行添加到缓冲区末尾
+                                        curserEnd()
+                                vim.command("redraw")  # 刷新界面 
+                        if "done" in json_data and json_data["done"]:
+                            continue
+                    except json.JSONDecodeError:
+                        print(f"Invalid JSON chunk: {chunk_str}", file=sys.stderr)
+            if assistant_reply:
+                addHistory(conversation_history, hisReq, {"role": "assistant", "content": assistant_reply})
+                historyToVim(conversation_history)
     return True
 
 def deepseek_chat_stream(q):
@@ -282,44 +283,45 @@ def deepseek_chat_stream(q):
     hisReq={"role": "user", "content": q}
     data["messages"]=serializableHistory(conversation_history, hisReq)
     data["stream"]=True
-    with requests.post(CstUrl, headers=header, json=data, stream=True) as response:
-        if response.status_code != 200:
-            vim.command(f'echo "Status: {response.status_code}"')
-            return False
-        assistant_reply = ""
-        putSep(moveCursor=False, htmlSep=True)
-        for chunk in response.iter_lines():
-            if chunk:
-                chunk_str=chunk.decode("utf-8").strip()
-                if chunk_str.startswith("data:"):  # 假设返回的数据格式是 "data: {...}"
-                    json_str = chunk_str[5:].strip()  # 去掉 "data:" 前缀
-                    if json_str == "[DONE]":
-                        continue
-                    try:
-                        json_data = json.loads(json_str)  # 解析 JSON
-                        if "choices" in json_data:
-                            delta = json_data["choices"][0]["delta"]
-                            if "content" in delta:
-                                text= delta["content"]
-                                assistant_reply += text
-                                if text:
-                                    buf = vim.current.buffer
-                                    lines = text.split('\n')
-                                    firstLine=True
-                                    for line in lines:
-                                        if firstLine:
-                                            firstLine = False
-                                            last_line = len(buf) - 1
-                                            buf[last_line] += line  # 直接修改最后一行的内容
-                                        else:
-                                            buf.append(line)  # 将每一行添加到缓冲区末尾
-                                            curserEnd()
-                                    vim.command("redraw")  # 刷新界面
-                    except json.JSONDecodeError:
-                        print(f"Invalid JSON chunk: {chunk_str}", file=sys.stderr)
-        if assistant_reply:
-            addHistory(conversation_history, hisReq, {"role": "assistant", "content": assistant_reply})
-            historyToVim(conversation_history)
+    with httpx.Client(http2=True) as client:
+        with client.stream("POST", CstUrl, headers=header, json=data) as response:
+            if response.status_code != 200:
+                vim.command(f'echo "Status: {response.status_code}"')
+                return False
+            assistant_reply = ""
+            putSep(moveCursor=False, htmlSep=True)
+            for chunk in response.iter_lines():
+                if chunk:
+                    chunk_str=chunk.strip()
+                    if chunk_str.startswith("data:"):  # 假设返回的数据格式是 "data: {...}"
+                        json_str = chunk_str[5:].strip()  # 去掉 "data:" 前缀
+                        if json_str == "[DONE]":
+                            continue
+                        try:
+                            json_data = json.loads(json_str)  # 解析 JSON
+                            if "choices" in json_data:
+                                delta = json_data["choices"][0]["delta"]
+                                if "content" in delta:
+                                    text= delta["content"]
+                                    assistant_reply += text
+                                    if text:
+                                        buf = vim.current.buffer
+                                        lines = text.split('\n')
+                                        firstLine=True
+                                        for line in lines:
+                                            if firstLine:
+                                                firstLine = False
+                                                last_line = len(buf) - 1
+                                                buf[last_line] += line  # 直接修改最后一行的内容
+                                            else:
+                                                buf.append(line)  # 将每一行添加到缓冲区末尾
+                                                curserEnd()
+                                        vim.command("redraw")  # 刷新界面
+                        except json.JSONDecodeError:
+                            print(f"Invalid JSON chunk: {chunk_str}", file=sys.stderr)
+            if assistant_reply:
+                addHistory(conversation_history, hisReq, {"role": "assistant", "content": assistant_reply})
+                historyToVim(conversation_history)
     return True
 
 def DeepSeekChatEnter():
