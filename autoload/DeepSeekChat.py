@@ -27,6 +27,7 @@ CstCfgAIServerUrl="AIServerUrl"
 CstCfgAIServerType="AIServerType"
 CstCfgModel="Model"
 CstCfgHideThink="HideThink"
+CstCfgTimeout="Timeout"
 
 CstBufferName="deepseekchat"
 
@@ -221,7 +222,10 @@ def ollama_chat_stream(q):
     data["stream"]=True
     with httpx.Client(http2=True) as client:
         try:
-            with client.stream("POST", url, headers=header, json=data) as response:
+            timeout=getCfgWithDefault(CstCfgTimeout, 10)
+            if type(timeout) is not int:
+                timeout=int(timeout)
+            with client.stream("POST", url, headers=header, json=data, timeout=timeout) as response:
                 if response.status_code != 200:
                     vim.command(f'echo "Status: {response.status_code}"')
                     return False
@@ -289,7 +293,10 @@ def deepseek_chat_stream(q):
     data["stream"]=True
     with httpx.Client(http2=True) as client:
         try:
-            with client.stream("POST", CstUrl, headers=header, json=data) as response:
+            timeout=getCfgWithDefault(CstCfgTimeout, 10)
+            if type(timeout) is not int:
+                timeout=int(timeout)
+            with client.stream("POST", CstUrl, headers=header, json=data, timeout=timeout) as response:
                 if response.status_code != 200:
                     vim.command(f'echo "Status: {response.status_code}"')
                     return False
