@@ -23,16 +23,18 @@ CstVarHistory="deepseek_history"
 CstVarCfg="deepseek_chat_cfg"
 CstCfgHtmlSepType="HtmlSepType"
 CstCfgApiKey="ApiKey"
-CstCfgAIServerUrl="AIServerUrl"
+CstCfgServerUrl="ServerUrl"
 CstCfgAIServerType="AIServerType"
 CstCfgModel="Model"
 CstCfgHideThink="HideThink"
 CstCfgTimeout="Timeout"
+CstCfgMaxTokens="MaxTokens"
+CstCfgUrl="Url"
 
 CstBufferName="deepseekchat"
 
 CstServerTypeDeepSeek="deepseek"
-CstServerTypeOllama="ollama"
+CstServerTypeCommon="common"
 
 gCfg = {}
 gNvim = -1
@@ -196,33 +198,44 @@ def isNvim():
     else:
         return True
 
-def getCfgWithDefault(key, default):
+def getCfgWithDefault(cfg, key, default):
     ret=default
-    if key in gCfg:
-        ret=gCfg[key]
+    if key in cfg:
+        ret=cfg[key]
         if type(ret) is bytes:
             ret=ret.decode('utf-8')
 #    vim.command(f'echom "getCfgWithDefault, key: {key}, ret: {ret}, default: {default}"')
     return ret
 
-def ollama_chat_stream(q):
+def getGlobalCfgWithDefault(key, default):
+    return getCfgWithDefault(gCfg, key, default)
+
+
+def chat_stream(serverCfg, q):
     conversation_history=historyFromVim()
-    url=getCfgWithDefault(CstCfgAIServerUrl, CstOllamaUrl)
-    model=getCfgWithDefault(CstCfgModel, "")
+    url=getCfgWithDefault(serverCfg, CstCfgServerUrl, CstOllamaUrl)
+    model=getCfgWithDefault(serverCfg, CstCfgModel, "")
 #    vim.command(f'echom "ollama, history: {conversation_history}"')
     header = {
         "Content-Type": "application/json",
     }
+
+    apiKey=getCfgWithDefault(serverCfg, CstCfgApiKey, "")
+    if apiKey:
+        header["Authorization"]=f"Bearer {apiKey}"
     data = {
         "model": model,
         "messages": [{"role": "user"}],
     }
+    maxTokens=getGlobalCfgWithDefault(CstCfgMaxTokens, 0)
+    if maxTokens:
+        data["max_tokens"]=maxTokens
     hisReq={"role": "user", "content": q}
     data["messages"]=serializableHistory(conversation_history, hisReq)
     data["stream"]=True
     with httpx.Client(http2=True) as client:
         try:
-            timeout=getCfgWithDefault(CstCfgTimeout, 10)
+            timeout=getGlobalCfgWithDefault(CstCfgTimeout, 10)
             if type(timeout) is not int:
                 timeout=int(timeout)
             with client.stream("POST", url, headers=header, json=data, timeout=timeout) as response:
@@ -232,7 +245,7 @@ def ollama_chat_stream(q):
                 assistant_reply = ""
                 putSep(moveCursor=False, htmlSep=True)
                 thinking=False
-                hideThink=getCfgWithDefault(CstCfgHideThink, 1)
+                hideThink=getGlobalCfgWithDefault(CstCfgHideThink, 1)
                 for chunk in response.iter_lines():
                     if chunk:
                         chunk_str=chunk.strip()
@@ -275,9 +288,9 @@ def ollama_chat_stream(q):
             return False
     return True
 
-def deepseek_chat_stream(q):
+def deepseek_chat_stream(serverCfg, q):
     conversation_history=historyFromVim()
-    apiKey=getCfgWithDefault(CstCfgApiKey, "")
+    apiKey=getCfgWithDefault(serverCfg, CstCfgApiKey, "")
 #    vim.command(f'echom "key: {apiKey}, history: {conversation_history}"')
     header = {
         "Authorization": f"Bearer {apiKey}",
@@ -293,7 +306,7 @@ def deepseek_chat_stream(q):
     data["stream"]=True
     with httpx.Client(http2=True) as client:
         try:
-            timeout=getCfgWithDefault(CstCfgTimeout, 10)
+            timeout=getGlobalCfgWithDefault(CstCfgTimeout, 10)
             if type(timeout) is not int:
                 timeout=int(timeout)
             with client.stream("POST", CstUrl, headers=header, json=data, timeout=timeout) as response:
@@ -373,8 +386,10 @@ def DeepSeekChatCommand(cmd, visualMode=0):
     if not CstCfgHtmlSepType in gCfg:
         gCfg[CstCfgHtmlSepType] = 2
     if cmd=="chat":
-        if not CstCfgApiKey in gCfg:
-            print(f"please set g:{CstVarCfg}.{CstCfgApiKey}")
+        aiType=getGlobalCfgWithDefault(CstCfgAIServerType, CstServerTypeDeepSeek)
+        serverCfgs=gCfg["Servers"]
+        if aiType not in serverCfgs:
+            print(f"please set g:{CstVarCfg}.Servers.{aiType}")
             return
         line=""
         if 0 != visualMode:
@@ -406,12 +421,11 @@ def DeepSeekChatCommand(cmd, visualMode=0):
             print("empty question")
             return
 
-        aiType=getCfgWithDefault(CstCfgAIServerType, CstServerTypeDeepSeek)
 #        vim.command(f'echom "line: {line}, mode: {visualMode}, aiType: {aiType}"')
-        if aiType==CstServerTypeOllama:
-            ret=ollama_chat_stream(line)
+        if aiType == CstServerTypeDeepSeek:
+            ret=deepseek_chat_stream(serverCfgs[aiType], line)
         else:
-            ret=deepseek_chat_stream(line)
+            ret=chat_stream(serverCfgs[aiType], line)
         if ret:
             putSep("end", suffixLine=2)
             putTip()
